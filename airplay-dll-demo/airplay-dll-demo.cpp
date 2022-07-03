@@ -7,9 +7,19 @@
 #include "SDL.h"
 #include "CSDLPlayer.h"
 
+#if _DEBUG
 int main()
+
+#else
+int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int nCmdShow)
+
+#endif // !_DEBUG
 {
+
+    
+    
     _CrtSetDbgFlag(_CRTDBG_ALLOC_MEM_DF | _CRTDBG_LEAK_CHECK_DF);
+
 
     printf("Usage: \n [s] to start server\n [q] to stop\n [-] and [=] to scale video size.\n\n");
 

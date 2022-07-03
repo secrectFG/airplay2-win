@@ -1,6 +1,12 @@
 #include "CSDLPlayer.h"
 #include <stdio.h>
 #include "CAutoLock.h"
+#include <libyuv/convert_argb.h>
+#include <iostream>
+#include <fstream>
+#include <vector>
+
+using namespace std;
 
 /* This function may run in a separate event thread */
 int FilterEvents(const SDL_Event* event) {
@@ -29,7 +35,7 @@ CSDLPlayer::CSDLPlayer()
 	, m_sAudioFmt()
 	, m_rect()
 	, m_server()
-	, m_fRatio(1.0f)
+	//, m_fRatio(1.0f)
 {
 	ZeroMemory(&m_sAudioFmt, sizeof(SFgAudioFrame));
 	ZeroMemory(&m_rect, sizeof(SDL_Rect));
@@ -59,18 +65,80 @@ bool CSDLPlayer::init()
 	SDL_EventState(SDL_MOUSEMOTION, SDL_IGNORE);
 	SDL_EventState(SDL_MOUSEBUTTONDOWN, SDL_IGNORE);
 
-	initVideo(600, 400);
+	
+	//ifstream inFile("testdump.dat", ios::in | ios::binary); //二进制读方式打开
+	//inFile.read((char*)&d, sizeof(d));
+	//vector<char>* vec = new vector<char>();
+	//char c;
+	//while (inFile.read(&c, 1))
+	//{
+	//	vec->push_back(c);
+	//}
+	//d.data = (unsigned char*) & (*vec)[0];
+
+	//initVideo(d.width, d.height);
+
+	initVideo(300,100);
 
 	/* Filter quit and mouse motion events */
 	SDL_SetEventFilter(FilterEvents);
 
 	m_server.start(this);
+	SDL_WM_SetCaption("AirPlay Demo - Started [s - start server, q - stop server]", NULL);
+
+	//m_vcamShared = std::make_shared<SharedImageMemory>(0);
+	m_vcamShared = new SharedImageMemory(0);
+	auto b = m_vcamShared->SendIsReady();
+	if(!b)
+		printf("SharedImageMemory open failed!");
+
+	//m_thread = thread([this] {
+	//		while (1)
+	//		{
+	//			Sleep(100);
+	//			if ((m_vcamShared != nullptr))
+	//				outputVideo(&d);
+	//			else break;
+	//		}
+	//	});
+	m_keepVcamRenderThread = thread([this] {
+		while (1)
+		{
+			Sleep(1000/60);
+			if (m_vcamShared == nullptr)break;
+
+			if (GetTickCount64() - lastRenderTime > 1000 / 20) {
+				lastRenderTime = GetTickCount64();
+				if (m_argbBuffer != nullptr) {
+					auto width = lw;
+					auto height = lh;
+					if (m_vcamShared == nullptr)break;
+					//printf("render %lld\n %d %d", lastRenderTime, lw, lh);
+					m_vcamShared->Send(width, height, width, width * height * 4,
+						SharedImageMemory::EFormat::FORMAT_UINT8,
+						SharedImageMemory::EResizeMode::RESIZEMODE_DISABLED,
+						SharedImageMemory::EMirrorMode::MIRRORMODE_DISABLED,
+						1000, m_argbBuffer);
+				}
+			}
+		}
+		});
+	
 
 	return true;
 }
 
 void CSDLPlayer::unInit()
 {
+	if (m_vcamShared)delete m_vcamShared;
+	if (m_argbBuffer)delete m_argbBuffer;
+
+	m_vcamShared = nullptr;
+	m_argbBuffer = nullptr;
+
+	//m_thread.join();
+	m_keepVcamRenderThread.join();
+
 	unInitVideo();
 	unInitAudio();
 
@@ -114,25 +182,32 @@ void CSDLPlayer::loopEvents()
 			switch (event.key.keysym.sym)
 			{
 				case SDLK_q: {
-					printf("key down");
+					printf("SDLK_q key down\n");
 					m_server.stop();
 					SDL_WM_SetCaption("AirPlay Demo - Stopped [s - start server, q - stop server]", NULL);
 					break;
 				}
 				case SDLK_s: {
-					printf("key down");
+					printf("SDLK_s key down\n");
 					m_server.start(this);
 					SDL_WM_SetCaption("AirPlay Demo - Started [s - start server, q - stop server]", NULL);
 					break;
 				}
-				case SDLK_EQUALS: {
-					m_fRatio *= 2;
-					m_fRatio = m_server.setVideoScale(m_fRatio);
-					break;
-				}
-				case SDLK_MINUS: {
-					m_fRatio /= 2;
-					m_fRatio = m_server.setVideoScale(m_fRatio);
+				//case SDLK_EQUALS: {
+				//	printf("SDLK_EQUALS key down\n");
+				//	m_fRatio *= 1.2f;
+				//	//m_fRatio = m_server.setVideoScale(m_fRatio);
+				//	break;
+				//}
+				//case SDLK_MINUS: {
+				//	printf("SDLK_MINUS key down\n");
+				//	m_fRatio /= 1.2f;
+				//	//m_fRatio = m_server.setVideoScale(m_fRatio);
+				//	break;
+				//}
+				case SDLK_HOME: {
+					testkey = true;
+					printf("SDLK_HOME key down\n");
 					break;
 				}
 			}
@@ -153,11 +228,30 @@ void CSDLPlayer::loopEvents()
 	}
 }
 
+
+static bool haswrite = false;
+
+/// <summary>
+/// 视频输出
+/// </summary>
+/// <param name="data"></param>
 void CSDLPlayer::outputVideo(SFgVideoFrame* data) 
 {
+	
 	if (data->width == 0 || data->height == 0) {
 		return;
 	}
+	//printf("%d %d %d \n", data->isKey, haswrite, testkey);
+	//if (data->isKey && !haswrite) {
+	//	haswrite = true;
+	//	ofstream outFile("testdump.dat", ios::out | ios::binary);
+	//	SFgVideoFrame d = *data;
+	//	outFile.write((char*)&d, sizeof(SFgVideoFrame));
+	//	outFile.write((char*)d.data, d.dataTotalLen);
+	//	outFile.close();
+	//	printf("testdump wrote\n");
+	//}
+	
 
 	if (data->width != m_rect.w || data->height != m_rect.h) {
 		{
@@ -205,7 +299,37 @@ void CSDLPlayer::outputVideo(SFgVideoFrame* data)
 	m_rect.w = data->width;
 	m_rect.h = data->height;
 
-	SDL_DisplayYUVOverlay(m_yuv, &m_rect);
+	auto newRect = m_rect;
+	newRect.w *= m_fRatio;
+	newRect.h *= m_fRatio;
+
+	SDL_DisplayYUVOverlay(m_yuv, &newRect);
+
+	auto width = data->width, height = data->height;
+	libyuv::I420ToARGB(m_yuv->pixels[0], m_yuv->pitches[0],
+		m_yuv->pixels[2], m_yuv->pitches[2], 
+		m_yuv->pixels[1], m_yuv->pitches[1],
+		m_argbBuffer,
+		width*4, width, height
+		);
+	m_vcamShared->Send(width, height, width, width * height * 4,
+		SharedImageMemory::EFormat::FORMAT_UINT8, 
+		SharedImageMemory::EResizeMode::RESIZEMODE_DISABLED,
+		SharedImageMemory::EMirrorMode::MIRRORMODE_DISABLED,
+		1000, m_argbBuffer);
+
+	lw = width;
+	lh = height;
+
+	
+	lastRenderTime = GetTickCount64();
+	//printf("recv %d %d %lld\n ", width, height, lastRenderTime);
+	//m_vcamShared->Send(width, height, width, m_yuv->pitches[0],
+	//	SharedImageMemory::EFormat::FORMAT_UINT8, 
+	//	SharedImageMemory::EResizeMode::RESIZEMODE_DISABLED,
+	//	SharedImageMemory::EMirrorMode::MIRRORMODE_DISABLED,
+	//	1000, data->data);
+
 }
 
 void CSDLPlayer::outputAudio(SFgAudioFrame* data)
@@ -237,6 +361,7 @@ void CSDLPlayer::outputAudio(SFgAudioFrame* data)
 
 void CSDLPlayer::initVideo(int width, int height)
 {
+	printf("initVideo %d %d",width,height);
 	// 0x115
 	m_surface = SDL_SetVideoMode(width, height, 0, SDL_SWSURFACE);
 	SDL_WM_SetCaption("AirPlay Demo [s - start server, q - stop server]", NULL);
@@ -253,7 +378,12 @@ void CSDLPlayer::initVideo(int width, int height)
 		m_rect.w = width;
 		m_rect.h = height;
 
+		lw = width;
+		lh = height;
+
 		SDL_DisplayYUVOverlay(m_yuv, &m_rect);
+		if (m_argbBuffer)delete m_argbBuffer;
+		m_argbBuffer = new uint8_t[width * height * 4];
 	}
 }
 

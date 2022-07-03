@@ -6,6 +6,9 @@
 #include "SDL_thread.h"
 #undef main 
 #include "CAirServer.h"
+#include "shared.inl"
+//#include <memory>
+#include <thread>
 
 typedef void sdlAudioCallback(void* userdata, Uint8* stream, int len);
 
@@ -57,6 +60,16 @@ public:
 	FILE* m_fileWav;
 
 	CAirServer m_server;
-	float m_fRatio;
+	float m_fRatio = 0.5f;
+
+	//std::shared_ptr<SharedImageMemory> m_vcamShared;
+	SharedImageMemory* m_vcamShared = nullptr;
+	uint8_t* m_argbBuffer = nullptr;
+	std::thread m_thread;
+	std::thread m_keepVcamRenderThread;
+	SFgVideoFrame d;
+	bool testkey = false;
+	int lw=0, lh=0;
+	uint64_t lastRenderTime = 0;
 };
 
