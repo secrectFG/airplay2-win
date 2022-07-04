@@ -5,6 +5,7 @@
 #include <iostream>
 #include <fstream>
 #include <vector>
+#include <cmath>
 
 using namespace std;
 
@@ -41,6 +42,8 @@ CSDLPlayer::CSDLPlayer()
 	ZeroMemory(&m_rect, sizeof(SDL_Rect));
 	m_mutexAudio = CreateMutex(NULL, FALSE, NULL);
 	m_mutexVideo = CreateMutex(NULL, FALSE, NULL);
+	m_toVcamBuffer = new uint8_t[VCAM_WIDTH * VCAM_HEIGHT * 4];
+	ZeroMemory(m_toVcamBuffer, sizeof(VCAM_WIDTH * VCAM_HEIGHT * 4));
 }
 
 CSDLPlayer::~CSDLPlayer()
@@ -49,6 +52,8 @@ CSDLPlayer::~CSDLPlayer()
 
 	CloseHandle(m_mutexAudio);
 	CloseHandle(m_mutexVideo);
+
+	delete m_toVcamBuffer;
 }
 
 bool CSDLPlayer::init()
@@ -65,20 +70,25 @@ bool CSDLPlayer::init()
 	SDL_EventState(SDL_MOUSEMOTION, SDL_IGNORE);
 	SDL_EventState(SDL_MOUSEBUTTONDOWN, SDL_IGNORE);
 
+#if TEST_SHOW
+	ifstream inFile("testdump.dat", ios::in | ios::binary); //二进制读方式打开
+	inFile.read((char*)&d, sizeof(d));
+	vector<char>* vec = new vector<char>();
+	char c;
+	while (inFile.read(&c, 1))
+	{
+		vec->push_back(c);
+	}
+	d.data = (unsigned char*) & (*vec)[0];
+
+	initVideo(d.width, d.height);
+#else
+	initVideo(300, 100);
+#endif // TEST_SHOW
+
 	
-	//ifstream inFile("testdump.dat", ios::in | ios::binary); //二进制读方式打开
-	//inFile.read((char*)&d, sizeof(d));
-	//vector<char>* vec = new vector<char>();
-	//char c;
-	//while (inFile.read(&c, 1))
-	//{
-	//	vec->push_back(c);
-	//}
-	//d.data = (unsigned char*) & (*vec)[0];
 
-	//initVideo(d.width, d.height);
-
-	initVideo(300,100);
+	
 
 	/* Filter quit and mouse motion events */
 	SDL_SetEventFilter(FilterEvents);
@@ -89,18 +99,22 @@ bool CSDLPlayer::init()
 	//m_vcamShared = std::make_shared<SharedImageMemory>(0);
 	m_vcamShared = new SharedImageMemory(0);
 	auto b = m_vcamShared->SendIsReady();
-	if(!b)
+	if(!b){
 		printf("SharedImageMemory open failed!");
-
-	//m_thread = thread([this] {
-	//		while (1)
-	//		{
-	//			Sleep(100);
-	//			if ((m_vcamShared != nullptr))
-	//				outputVideo(&d);
-	//			else break;
-	//		}
-	//	});
+		MessageBox(nullptr,TEXT("虚拟摄像头启动失败"), TEXT(""), 0);
+		exit(1);
+	}
+#if TEST_SHOW
+	m_thread = thread([this] {
+			while (1)
+			{
+				Sleep(1000 / 60);
+				if (m_vcamShared != nullptr && m_argbBuffer != nullptr)
+					outputVideo(&d);
+				else break;
+			}
+		});
+#else
 	m_keepVcamRenderThread = thread([this] {
 		while (1)
 		{
@@ -114,16 +128,21 @@ bool CSDLPlayer::init()
 					auto height = lh;
 					if (m_vcamShared == nullptr)break;
 					//printf("render %lld\n %d %d", lastRenderTime, lw, lh);
-					m_vcamShared->Send(width, height, width, width * height * 4,
+					/*m_vcamShared->Send(width, height, width, width * height * 4,
 						SharedImageMemory::EFormat::FORMAT_UINT8,
 						SharedImageMemory::EResizeMode::RESIZEMODE_DISABLED,
 						SharedImageMemory::EMirrorMode::MIRRORMODE_DISABLED,
-						1000, m_argbBuffer);
+						1000, m_argbBuffer);*/
+					m_vcamShared->Send(VCAM_WIDTH, VCAM_HEIGHT, VCAM_WIDTH, VCAM_WIDTH * VCAM_HEIGHT * 4,
+						SharedImageMemory::EFormat::FORMAT_UINT8,
+						SharedImageMemory::EResizeMode::RESIZEMODE_DISABLED,
+						SharedImageMemory::EMirrorMode::MIRRORMODE_DISABLED,
+						1000, m_toVcamBuffer);
 				}
 			}
 		}
 		});
-	
+#endif
 
 	return true;
 }
@@ -136,8 +155,11 @@ void CSDLPlayer::unInit()
 	m_vcamShared = nullptr;
 	m_argbBuffer = nullptr;
 
-	//m_thread.join();
+#if TEST_SHOW
+	m_thread.join();
+#else
 	m_keepVcamRenderThread.join();
+#endif
 
 	unInitVideo();
 	unInitAudio();
@@ -193,18 +215,18 @@ void CSDLPlayer::loopEvents()
 					SDL_WM_SetCaption("AirPlay Demo - Started [s - start server, q - stop server]", NULL);
 					break;
 				}
-				//case SDLK_EQUALS: {
-				//	printf("SDLK_EQUALS key down\n");
-				//	m_fRatio *= 1.2f;
-				//	//m_fRatio = m_server.setVideoScale(m_fRatio);
-				//	break;
-				//}
-				//case SDLK_MINUS: {
-				//	printf("SDLK_MINUS key down\n");
-				//	m_fRatio /= 1.2f;
-				//	//m_fRatio = m_server.setVideoScale(m_fRatio);
-				//	break;
-				//}
+				case SDLK_EQUALS: {
+					printf("SDLK_EQUALS key down\n");
+					m_fRatio *= 1.02f;
+					//m_fRatio = m_server.setVideoScale(m_fRatio);
+					break;
+				}
+				case SDLK_MINUS: {
+					printf("SDLK_MINUS key down\n");
+					m_fRatio /= 1.02f;
+					//m_fRatio = m_server.setVideoScale(m_fRatio);
+					break;
+				}
 				case SDLK_HOME: {
 					testkey = true;
 					printf("SDLK_HOME key down\n");
@@ -300,23 +322,61 @@ void CSDLPlayer::outputVideo(SFgVideoFrame* data)
 	m_rect.h = data->height;
 
 	auto newRect = m_rect;
+	
 	newRect.w *= m_fRatio;
 	newRect.h *= m_fRatio;
+	newRect.x = (m_rect.w - newRect.w)/2;
 
 	SDL_DisplayYUVOverlay(m_yuv, &newRect);
 
-	auto width = data->width, height = data->height;
+	auto width = (int)data->width, height = (int)data->height;
 	libyuv::I420ToARGB(m_yuv->pixels[0], m_yuv->pitches[0],
 		m_yuv->pixels[2], m_yuv->pitches[2], 
 		m_yuv->pixels[1], m_yuv->pitches[1],
 		m_argbBuffer,
 		width*4, width, height
 		);
-	m_vcamShared->Send(width, height, width, width * height * 4,
-		SharedImageMemory::EFormat::FORMAT_UINT8, 
+	//m_vcamShared->Send(width, height, width, width * height * 4,
+	//	SharedImageMemory::EFormat::FORMAT_UINT8, 
+	//	SharedImageMemory::EResizeMode::RESIZEMODE_DISABLED,
+	//	SharedImageMemory::EMirrorMode::MIRRORMODE_DISABLED,
+	//	1000, m_argbBuffer);
+
+
+	auto dw1w2 = ((int)width - VCAM_WIDTH)/2;
+	auto dh1h2 = ((int)height - VCAM_HEIGHT)/2;
+
+	
+	
+	//	for (int col = 0; col < width; col++)
+	for (int h = 0; h < VCAM_HEIGHT && h < height; h++) {
+		//printf("%d\n", int((h * VCAM_WIDTH) * 4));
+		for (int w = 0; w < width; w++) {
+			auto inexSrc = w + h * width;
+			auto indexDst = w + h * VCAM_WIDTH;
+			
+			indexDst -= dw1w2;
+
+			//auto nh = indexDst / VCAM_WIDTH;
+			//auto nw = indexDst % VCAM_WIDTH;
+
+			memcpy(m_toVcamBuffer + indexDst*4, m_argbBuffer + inexSrc*4, 4);
+			//m_toVcamBuffer[indexDst] = 255;
+			//m_toVcamBuffer[indexDst + 1] = 255;
+			//m_toVcamBuffer[indexDst + 2] = 0;
+			//m_toVcamBuffer[indexDst + 3] = 255;
+			
+			
+		}
+	}
+
+
+
+	m_vcamShared->Send(VCAM_WIDTH, VCAM_HEIGHT, VCAM_WIDTH, VCAM_WIDTH * VCAM_HEIGHT * 4,
+		SharedImageMemory::EFormat::FORMAT_UINT8,
 		SharedImageMemory::EResizeMode::RESIZEMODE_DISABLED,
 		SharedImageMemory::EMirrorMode::MIRRORMODE_DISABLED,
-		1000, m_argbBuffer);
+		1000, m_toVcamBuffer);
 
 	lw = width;
 	lh = height;
@@ -361,7 +421,7 @@ void CSDLPlayer::outputAudio(SFgAudioFrame* data)
 
 void CSDLPlayer::initVideo(int width, int height)
 {
-	printf("initVideo %d %d",width,height);
+	printf("initVideo %d %d\n",width,height);
 	// 0x115
 	m_surface = SDL_SetVideoMode(width, height, 0, SDL_SWSURFACE);
 	SDL_WM_SetCaption("AirPlay Demo [s - start server, q - stop server]", NULL);

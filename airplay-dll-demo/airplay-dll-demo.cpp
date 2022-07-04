@@ -8,7 +8,7 @@
 #include "CSDLPlayer.h"
 
 #if _DEBUG
-int main()
+int main() 
 
 #else
 int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int nCmdShow)

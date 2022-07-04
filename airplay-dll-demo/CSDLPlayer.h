@@ -24,6 +24,11 @@ typedef std::queue<SFgVideoFrame*> SFgVideoFrameQueue;
 
 #define VIDEO_SIZE_CHANGED_CODE 1
 
+#define VCAM_WIDTH 1920
+#define VCAM_HEIGHT 1080
+
+#define TEST_SHOW 0
+
 class CSDLPlayer
 {
 public:
@@ -60,11 +65,13 @@ public:
 	FILE* m_fileWav;
 
 	CAirServer m_server;
-	float m_fRatio = 0.5f;
+	float m_fRatio = 0.92f;
 
-	//std::shared_ptr<SharedImageMemory> m_vcamShared;
 	SharedImageMemory* m_vcamShared = nullptr;
 	uint8_t* m_argbBuffer = nullptr;
+
+	uint8_t* m_toVcamBuffer;
+
 	std::thread m_thread;
 	std::thread m_keepVcamRenderThread;
 	SFgVideoFrame d;
