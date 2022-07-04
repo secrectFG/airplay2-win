@@ -28,6 +28,7 @@ typedef std::queue<SFgVideoFrame*> SFgVideoFrameQueue;
 #define VCAM_HEIGHT 1080
 
 #define TEST_SHOW 0
+#define CONVERT_RESOLUTION 1
 
 class CSDLPlayer
 {
@@ -78,5 +79,7 @@ public:
 	bool testkey = false;
 	int lw=0, lh=0;
 	uint64_t lastRenderTime = 0;
+
+	bool resolutionChange = false;
 };
 

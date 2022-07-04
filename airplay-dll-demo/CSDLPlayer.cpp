@@ -43,7 +43,7 @@ CSDLPlayer::CSDLPlayer()
 	m_mutexAudio = CreateMutex(NULL, FALSE, NULL);
 	m_mutexVideo = CreateMutex(NULL, FALSE, NULL);
 	m_toVcamBuffer = new uint8_t[VCAM_WIDTH * VCAM_HEIGHT * 4];
-	ZeroMemory(m_toVcamBuffer, sizeof(VCAM_WIDTH * VCAM_HEIGHT * 4));
+	memset(m_toVcamBuffer, 0, VCAM_WIDTH * VCAM_HEIGHT * 4);
 }
 
 CSDLPlayer::~CSDLPlayer()
@@ -96,7 +96,6 @@ bool CSDLPlayer::init()
 	m_server.start(this);
 	SDL_WM_SetCaption("AirPlay Demo - Started [s - start server, q - stop server]", NULL);
 
-	//m_vcamShared = std::make_shared<SharedImageMemory>(0);
 	m_vcamShared = new SharedImageMemory(0);
 	auto b = m_vcamShared->SendIsReady();
 	if(!b){
@@ -127,17 +126,21 @@ bool CSDLPlayer::init()
 					auto width = lw;
 					auto height = lh;
 					if (m_vcamShared == nullptr)break;
+#if CONVERT_RESOLUTION
 					//printf("render %lld\n %d %d", lastRenderTime, lw, lh);
-					/*m_vcamShared->Send(width, height, width, width * height * 4,
-						SharedImageMemory::EFormat::FORMAT_UINT8,
-						SharedImageMemory::EResizeMode::RESIZEMODE_DISABLED,
-						SharedImageMemory::EMirrorMode::MIRRORMODE_DISABLED,
-						1000, m_argbBuffer);*/
+					/**/
 					m_vcamShared->Send(VCAM_WIDTH, VCAM_HEIGHT, VCAM_WIDTH, VCAM_WIDTH * VCAM_HEIGHT * 4,
 						SharedImageMemory::EFormat::FORMAT_UINT8,
 						SharedImageMemory::EResizeMode::RESIZEMODE_DISABLED,
 						SharedImageMemory::EMirrorMode::MIRRORMODE_DISABLED,
 						1000, m_toVcamBuffer);
+#else
+					m_vcamShared->Send(width, height, width, width * height * 4,
+						SharedImageMemory::EFormat::FORMAT_UINT8,
+						SharedImageMemory::EResizeMode::RESIZEMODE_DISABLED,
+						SharedImageMemory::EMirrorMode::MIRRORMODE_DISABLED,
+						1000, m_argbBuffer);
+#endif
 				}
 			}
 		}
@@ -290,6 +293,8 @@ void CSDLPlayer::outputVideo(SFgVideoFrame* data)
 		m_evtVideoSizeChange.user.data2 = (void*)data->height;
 
 		SDL_PushEvent(&m_evtVideoSizeChange);
+
+		resolutionChange = true;
 		return;
 	}
 
@@ -336,37 +341,29 @@ void CSDLPlayer::outputVideo(SFgVideoFrame* data)
 		m_argbBuffer,
 		width*4, width, height
 		);
-	//m_vcamShared->Send(width, height, width, width * height * 4,
-	//	SharedImageMemory::EFormat::FORMAT_UINT8, 
-	//	SharedImageMemory::EResizeMode::RESIZEMODE_DISABLED,
-	//	SharedImageMemory::EMirrorMode::MIRRORMODE_DISABLED,
-	//	1000, m_argbBuffer);
 
+#if CONVERT_RESOLUTION
+	auto dw1w2 = ((int)width - VCAM_WIDTH) / 2;
+	auto dh1h2 = ((int)height - VCAM_HEIGHT) / 2;
 
-	auto dw1w2 = ((int)width - VCAM_WIDTH)/2;
-	auto dh1h2 = ((int)height - VCAM_HEIGHT)/2;
+	if (resolutionChange) {
+		memset(m_toVcamBuffer,0, VCAM_WIDTH * VCAM_HEIGHT * 4);
+		printf("resolutionChange %d %d\n", width,height);
+		resolutionChange = false;
+	}
 
-	
-	
 	//	for (int col = 0; col < width; col++)
 	for (int h = 0; h < VCAM_HEIGHT && h < height; h++) {
 		//printf("%d\n", int((h * VCAM_WIDTH) * 4));
 		for (int w = 0; w < width; w++) {
 			auto inexSrc = w + h * width;
 			auto indexDst = w + h * VCAM_WIDTH;
-			
 			indexDst -= dw1w2;
-
-			//auto nh = indexDst / VCAM_WIDTH;
-			//auto nw = indexDst % VCAM_WIDTH;
-
-			memcpy(m_toVcamBuffer + indexDst*4, m_argbBuffer + inexSrc*4, 4);
-			//m_toVcamBuffer[indexDst] = 255;
-			//m_toVcamBuffer[indexDst + 1] = 255;
-			//m_toVcamBuffer[indexDst + 2] = 0;
-			//m_toVcamBuffer[indexDst + 3] = 255;
-			
-			
+			if (indexDst < 0)break;
+			auto nh = indexDst / VCAM_WIDTH;
+			auto nw = indexDst % VCAM_WIDTH;
+			if (nh >= VCAM_HEIGHT || nw >= VCAM_WIDTH)break;
+			memcpy(m_toVcamBuffer + indexDst * 4, m_argbBuffer + inexSrc * 4, 4);
 		}
 	}
 
@@ -377,18 +374,25 @@ void CSDLPlayer::outputVideo(SFgVideoFrame* data)
 		SharedImageMemory::EResizeMode::RESIZEMODE_DISABLED,
 		SharedImageMemory::EMirrorMode::MIRRORMODE_DISABLED,
 		1000, m_toVcamBuffer);
+#else
+	m_vcamShared->Send(width, height, width, width * height * 4,
+		SharedImageMemory::EFormat::FORMAT_UINT8, 
+		SharedImageMemory::EResizeMode::RESIZEMODE_DISABLED,
+		SharedImageMemory::EMirrorMode::MIRRORMODE_DISABLED,
+		1000, m_argbBuffer);
+#endif
+
+	
+
+
+	
 
 	lw = width;
 	lh = height;
 
 	
 	lastRenderTime = GetTickCount64();
-	//printf("recv %d %d %lld\n ", width, height, lastRenderTime);
-	//m_vcamShared->Send(width, height, width, m_yuv->pitches[0],
-	//	SharedImageMemory::EFormat::FORMAT_UINT8, 
-	//	SharedImageMemory::EResizeMode::RESIZEMODE_DISABLED,
-	//	SharedImageMemory::EMirrorMode::MIRRORMODE_DISABLED,
-	//	1000, data->data);
+
 
 }
 
@@ -441,9 +445,12 @@ void CSDLPlayer::initVideo(int width, int height)
 		lw = width;
 		lh = height;
 
+		
+
 		SDL_DisplayYUVOverlay(m_yuv, &m_rect);
 		if (m_argbBuffer)delete m_argbBuffer;
 		m_argbBuffer = new uint8_t[width * height * 4];
+		
 	}
 }
 
