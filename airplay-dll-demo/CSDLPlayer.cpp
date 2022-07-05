@@ -94,15 +94,13 @@ bool CSDLPlayer::init()
 	SDL_SetEventFilter(FilterEvents);
 
 	m_server.start(this);
-	SDL_WM_SetCaption("AirPlay Demo - Started [s - start server, q - stop server]", NULL);
+	SDL_WM_SetCaption("AirPlay - Started [s - start server, q - stop server]", NULL);
 
-	m_vcamShared = new SharedImageMemory(0);
-	auto b = m_vcamShared->SendIsReady();
-	if(!b){
-		printf("SharedImageMemory open failed!");
-		MessageBox(nullptr,TEXT("–Èƒ‚…„œÒÕ∑∆Ù∂Ø ß∞‹"), TEXT(""), 0);
-		exit(1);
-	}
+	
+	
+
+	checkVcam();
+
 #if TEST_SHOW
 	m_thread = thread([this] {
 			while (1)
@@ -357,7 +355,7 @@ void CSDLPlayer::outputVideo(SFgVideoFrame* data)
 		//printf("%d\n", int((h * VCAM_WIDTH) * 4));
 		for (int w = 0; w < width; w++) {
 			auto inexSrc = w + h * width;
-			auto indexDst = w + h * VCAM_WIDTH;
+			auto indexDst = w + (VCAM_HEIGHT-h) * VCAM_WIDTH;
 			indexDst -= dw1w2;
 			if (indexDst < 0)break;
 			auto nh = indexDst / VCAM_WIDTH;
@@ -451,6 +449,7 @@ void CSDLPlayer::initVideo(int width, int height)
 		if (m_argbBuffer)delete m_argbBuffer;
 		m_argbBuffer = new uint8_t[width * height * 4];
 		
+		checkVcam();
 	}
 }
 
@@ -562,5 +561,18 @@ void CSDLPlayer::sdlAudioCallback(void* userdata, Uint8* stream, int len)
 		if (needLen <= 0) {
 			break;
 		}
+	}
+}
+
+void CSDLPlayer::checkVcam()
+{
+	if (!m_vcamShared) {
+		m_vcamShared = new SharedImageMemory(0);
+	}
+	if (!m_vcamShared->SendIsReady()) {
+		SDL_WM_SetCaption("Vcam Not Ready!", NULL);
+	}
+	else {
+		SDL_WM_SetCaption("Vcam Ready", NULL);
 	}
 }

@@ -12,6 +12,7 @@
 #include <windows.h>
 #include <initguid.h>
 #include <stdint.h>
+#include "CAutoLock.h"
 
 #define MAX_SHARED_IMAGE_SIZE (3840 * 2160 * 4 * sizeof(short)) //4K (RGBA max 16bit per pixel)
 
@@ -28,14 +29,17 @@ struct SharedImageMemory
 	{
 		memset(this, 0, sizeof(*this));
 		m_CapNum = CapNum;
+		m_mutexOpen = CreateMutex(NULL, FALSE, NULL);
 	}
 
 	~SharedImageMemory()
 	{
+		
 		if (m_hMutex) CloseHandle(m_hMutex);
 		if (m_hWantFrameEvent) CloseHandle(m_hWantFrameEvent);
 		if (m_hSentFrameEvent) CloseHandle(m_hSentFrameEvent);
 		if (m_hSharedFile) CloseHandle(m_hSharedFile);
+		CloseHandle(m_mutexOpen);
 	}
 
 	int32_t GetCapNum() { return m_CapNum; }
@@ -70,6 +74,11 @@ struct SharedImageMemory
 	enum ESendResult { SENDRES_TOOLARGE, SENDRES_WARN_FRAMESKIP, SENDRES_OK };
 	ESendResult Send(int width, int height, int stride, DWORD DataSize, EFormat format, EResizeMode resizemode, EMirrorMode mirrormode, int timeout, const uint8_t* buffer)
 	{
+		if (!SendIsReady())
+		{
+			Sleep(100);
+			return SENDRES_WARN_FRAMESKIP;
+		}
 		UCASSERT(buffer);
 		UCASSERT(m_pSharedBuf);
 		if (m_pSharedBuf->maxSize < DataSize) return SENDRES_TOOLARGE;
@@ -95,6 +104,8 @@ private:
 	bool Open(bool ForReceiving)
 	{
 		if (m_pSharedBuf) return true; //already open
+
+		CAutoLock oLock(m_mutexOpen);
 
 		UCASSERT(m_CapNum <= MAX_CAPNUM);
 		if (m_CapNum > MAX_CAPNUM) m_CapNum = MAX_CAPNUM;
@@ -163,4 +174,5 @@ private:
 	HANDLE m_hSentFrameEvent;
 	HANDLE m_hSharedFile;
 	SharedMemHeader* m_pSharedBuf;
+	HANDLE m_mutexOpen;
 };

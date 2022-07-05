@@ -49,6 +49,8 @@ public:
 	void unInitAudio();
 	static void sdlAudioCallback(void* userdata, Uint8* stream, int len);
 
+	void checkVcam();
+
 	SDL_Surface* m_surface;
 	//SDL_VideoInfo* vi;
 	SDL_Overlay* m_yuv;
