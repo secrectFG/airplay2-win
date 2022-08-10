@@ -74,9 +74,17 @@ struct SharedImageMemory
 	enum ESendResult { SENDRES_TOOLARGE, SENDRES_WARN_FRAMESKIP, SENDRES_OK };
 	ESendResult Send(int width, int height, int stride, DWORD DataSize, EFormat format, EResizeMode resizemode, EMirrorMode mirrormode, int timeout, const uint8_t* buffer)
 	{
+		if (tryConnectDelay) {
+			if (GetTickCount64()- timeStamp > 2000) {
+				tryConnectDelay = false;
+			}
+			return SENDRES_WARN_FRAMESKIP;
+		}
 		if (!SendIsReady())
 		{
-			Sleep(100);
+			printf("SendIsReady==false\n");
+			timeStamp = GetTickCount64();
+			tryConnectDelay = true;
 			return SENDRES_WARN_FRAMESKIP;
 		}
 		UCASSERT(buffer);
@@ -175,4 +183,7 @@ private:
 	HANDLE m_hSharedFile;
 	SharedMemHeader* m_pSharedBuf;
 	HANDLE m_mutexOpen;
+
+	bool tryConnectDelay = false;
+	int64_t timeStamp = 0;
 };
